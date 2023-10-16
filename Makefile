@@ -50,7 +50,7 @@ git-pull:
 .PHONY: deploy-app
 deploy-app:
 	sudo systemctl daemon-reload && \
-	sudo systemctl restart isuconquest.php.service
+	sudo systemctl restart isuconquest.go.service
 
 .PHONY: reset-log
 reset-log:
