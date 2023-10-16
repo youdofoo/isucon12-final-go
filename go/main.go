@@ -454,8 +454,6 @@ func (h *Handler) obtainPresent(tx *sqlx.Tx, userID int64, requestAt int64) ([]*
 	for _, v := range received {
 		receivedIDs[v.PresentAllID] = struct{}{}
 	}
-	log.Println(npIDs)
-	log.Println(receivedIDs)
 
 	obtainPresents := make([]*UserPresent, 0)
 	for _, np := range normalPresents {
@@ -1079,6 +1077,7 @@ func (h *Handler) login(c echo.Context) error {
 			UpdatedResources: makeUpdatedResources(requestAt, user, nil, nil, nil, nil, nil, nil),
 		})
 	}
+	log.Println("now login")
 
 	user, loginBonuses, presents, err := h.loginProcess(tx, req.UserID, requestAt)
 	if err != nil {
@@ -1090,6 +1089,7 @@ func (h *Handler) login(c echo.Context) error {
 		}
 		return errorResponse(c, http.StatusInternalServerError, err)
 	}
+	log.Println(presents)
 
 	err = tx.Commit()
 	if err != nil {
