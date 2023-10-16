@@ -50,7 +50,7 @@ git-pull:
 .PHONY: deploy-app
 deploy-app:
 	cd /home/isucon/webapp/go/ && \
-	go build -o isuconquest && \
+	/home/isucon/local/golang/bin/go build -o isuconquest && \
 	sudo systemctl daemon-reload && \
 	sudo systemctl restart isuconquest.go.service
 
