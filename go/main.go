@@ -629,6 +629,7 @@ func (h *Handler) obtainItems(tx *sqlx.Tx, userID int64, addItems []*addItem, re
 	addMaterials := make(map[int64]map[int][]int64, 0)
 
 	for _, item := range addItems {
+		log.Println(item)
 		switch item.itemType {
 		case 1: // coin
 			obtainCoins = append(obtainCoins, item.obtainAmount)
@@ -662,6 +663,7 @@ func (h *Handler) obtainItems(tx *sqlx.Tx, userID int64, addItems []*addItem, re
 			if err != nil {
 				return nil, nil, nil, err
 			}
+			log.Println(cID)
 			card := &UserCard{
 				ID:           cID,
 				UserID:       userID,
