@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"math"
 	"math/big"
 	"math/rand"
@@ -448,10 +449,13 @@ func (h *Handler) obtainPresent(tx *sqlx.Tx, userID int64, requestAt int64) ([]*
 	if err != sql.ErrNoRows {
 		return nil, err
 	}
+
 	receivedIDs := make(map[int64]struct{}, len(received))
 	for _, v := range received {
 		receivedIDs[v.PresentAllID] = struct{}{}
 	}
+	log.Println(npIDs)
+	log.Println(receivedIDs)
 
 	obtainPresents := make([]*UserPresent, 0)
 	for _, np := range normalPresents {
