@@ -739,7 +739,7 @@ func (h *Handler) obtainItems(tx *sqlx.Tx, userID int64, addItems []*addItem, re
 							addTotalNum += int(addNum)
 						}
 						query = fmt.Sprintf("UPDATE user_items SET amount=amount + %d, updated_at=%d WHERE id=%d", addTotalNum, requestAt, itemID)
-						if _, err := tx.Exec(query, uitem.Amount, uitem.UpdatedAt, uitem.ID); err != nil {
+						if _, err := tx.Exec(query); err != nil {
 							return nil, nil, nil, err
 						}
 					}
