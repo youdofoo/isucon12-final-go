@@ -436,19 +436,28 @@ func (h *Handler) obtainPresent(tx *sqlx.Tx, userID int64, requestAt int64) ([]*
 		return nil, err
 	}
 
+	npIDs := make([]string, len(normalPresents))
+	for i, np := range normalPresents {
+		npIDs[i] = fmt.Sprint(np.ID)
+	}
+	npIDString := fmt.Sprintf("(%s)", strings.Join(npIDs, ","))
+	query = fmt.Sprintf("SELECT * FROM user_present_all_received_history WHERE user_id=? AND present_all_id IN %s", npIDString)
+
+	received := []*UserPresentAllReceivedHistory{}
+	err := tx.Select(&received, query, userID)
+	if err != sql.ErrNoRows {
+		return nil, err
+	}
+	receivedIDs := make(map[int64]struct{}, len(received))
+	for _, v := range received {
+		receivedIDs[v.PresentAllID] = struct{}{}
+	}
+
 	obtainPresents := make([]*UserPresent, 0)
 	for _, np := range normalPresents {
-		received := new(UserPresentAllReceivedHistory)
-		query = "SELECT * FROM user_present_all_received_history WHERE user_id=? AND present_all_id=?"
-		err := tx.Get(received, query, userID, np.ID)
-		if err == nil {
-			// プレゼント配布済
+		if _, ok := receivedIDs[np.ID]; ok {
 			continue
 		}
-		if err != sql.ErrNoRows {
-			return nil, err
-		}
-
 		pID, err := h.generateID()
 		if err != nil {
 			return nil, err
