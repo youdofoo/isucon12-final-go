@@ -320,6 +320,7 @@ func (h *Handler) loginProcess(tx *sqlx.Tx, userID int64, requestAt int64) (*Use
 	if err != nil {
 		return nil, nil, nil, err
 	}
+	log.Printf("obtainPresent result: %v", allPresents)
 
 	if err = tx.Get(&user.IsuCoin, "SELECT isu_coin FROM users WHERE id=?", user.ID); err != nil {
 		if err == sql.ErrNoRows {
@@ -436,6 +437,7 @@ func (h *Handler) obtainPresent(tx *sqlx.Tx, userID int64, requestAt int64) ([]*
 	if err := tx.Select(&normalPresents, query, requestAt, requestAt); err != nil {
 		return nil, err
 	}
+	log.Println(query)
 
 	npIDs := make([]string, len(normalPresents))
 	for i, np := range normalPresents {
@@ -443,6 +445,8 @@ func (h *Handler) obtainPresent(tx *sqlx.Tx, userID int64, requestAt int64) ([]*
 	}
 	npIDString := fmt.Sprintf("(%s)", strings.Join(npIDs, ","))
 	query = fmt.Sprintf("SELECT * FROM user_present_all_received_history WHERE user_id=? AND present_all_id IN %s", npIDString)
+
+	log.Println(query)
 
 	received := []*UserPresentAllReceivedHistory{}
 	err := tx.Select(&received, query, userID)
@@ -454,6 +458,8 @@ func (h *Handler) obtainPresent(tx *sqlx.Tx, userID int64, requestAt int64) ([]*
 	for _, v := range received {
 		receivedIDs[v.PresentAllID] = struct{}{}
 	}
+	log.Println(npIDs)
+	log.Println(receivedIDs)
 
 	obtainPresents := make([]*UserPresent, 0)
 	for _, np := range normalPresents {
