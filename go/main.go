@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"math"
 	"math/big"
 	"math/rand"
@@ -629,7 +628,6 @@ func (h *Handler) obtainItems(tx *sqlx.Tx, userID int64, addItems []*addItem, re
 	addMaterials := make(map[int64]map[int][]int64, 0)
 
 	for _, item := range addItems {
-		log.Println(item)
 		switch item.itemType {
 		case 1: // coin
 			obtainCoins = append(obtainCoins, item.obtainAmount)
@@ -663,7 +661,6 @@ func (h *Handler) obtainItems(tx *sqlx.Tx, userID int64, addItems []*addItem, re
 			if err != nil {
 				return nil, nil, nil, err
 			}
-			log.Println(cID)
 			card := &UserCard{
 				ID:           cID,
 				UserID:       userID,
@@ -691,98 +688,94 @@ func (h *Handler) obtainItems(tx *sqlx.Tx, userID int64, addItems []*addItem, re
 		default:
 			return nil, nil, nil, ErrInvalidItemType
 		}
-
-		// コインの付与
-		if addCoinNum > 0 {
-			query := fmt.Sprintf("UPDATE users SET isu_coin=isu_coin + %d WHERE id=%d", addCoinNum, userID)
-			if _, err := tx.Exec(query); err != nil {
-				return nil, nil, nil, err
-			}
-		}
-
-		// カードの付与
-		if len(addCardQueries) > 0 {
-			query := fmt.Sprintf("INSERT INTO user_cards(id, user_id, card_id, amount_per_sec, level, total_exp, created_at, updated_at) VALUES %s", strings.Join(addCardQueries, ","))
-			log.Println(query)
-			if _, err := tx.Exec(query); err != nil {
-				return nil, nil, nil, err
-			}
-		}
-
-		// 強化素材の付与
-		if len(addMaterials) > 0 {
-			keys := make([]string, 0, len(addMaterials))
-			for k := range addMaterials {
-				keys = append(keys, fmt.Sprint(k))
-			}
-
-			uitems := []*UserItem{}
-
-			query := fmt.Sprintf("SELECT * FROM user_items WHERE user_id=%d AND item_id IN (%s)", userID, strings.Join(keys, ","))
-			if err := tx.Select(&uitems, query); err != nil {
-				if err != sql.ErrNoRows {
-					return nil, nil, nil, err
-				}
-				uitems = []*UserItem{}
-			}
-
-			uitemsMap := make(map[int64]*UserItem, len(uitems))
-			for _, v := range uitems {
-				uitemsMap[v.ItemID] = v
-			}
-
-			insertQueries := make([]string, 0, len(addMaterials))
-			for itemID, m1 := range addMaterials {
-				if uitem, ok := uitemsMap[itemID]; ok {
-					for _, addNums := range m1 {
-						addTotalNum := 0
-						for _, addNum := range addNums {
-							uitem.Amount += addTotalNum + int(addNum)
-							uitem.UpdatedAt = requestAt
-							obtainItems = append(obtainItems, uitem)
-							addTotalNum += int(addNum)
-						}
-						query = fmt.Sprintf("UPDATE user_items SET amount=amount + %d, updated_at=%d WHERE id=%d", addTotalNum, requestAt, itemID)
-						if _, err := tx.Exec(query); err != nil {
-							return nil, nil, nil, err
-						}
-					}
-				} else {
-					for itemType, addNums := range m1 {
-						uitemID, err := h.generateID()
-						if err != nil {
-							return nil, nil, nil, err
-						}
-						addTotalNum := 0
-						for _, addNum := range addNums {
-							uitem = &UserItem{
-								ID:        uitemID,
-								UserID:    userID,
-								ItemType:  itemType,
-								ItemID:    itemID,
-								Amount:    addTotalNum + int(addNum),
-								CreatedAt: requestAt,
-								UpdatedAt: requestAt,
-							}
-							obtainItems = append(obtainItems, uitem)
-							addTotalNum += int(addNum)
-						}
-						q := fmt.Sprintf("(%d,%d,%d,%d,%d,%d,%d)", uitem.ID, userID, uitem.ItemID, uitem.ItemType, uitem.Amount, requestAt, requestAt)
-						insertQueries = append(insertQueries, q)
-					}
-				}
-			}
-			if len(insertQueries) > 0 {
-				query = fmt.Sprintf("INSERT INTO user_items(id, user_id, item_id, item_type, amount, created_at, updated_at) VALUES %s", strings.Join(insertQueries, ","))
-				if _, err := tx.Exec(query); err != nil {
-					return nil, nil, nil, err
-				}
-			}
-
-		}
-
 	}
 
+	// コインの付与
+	if addCoinNum > 0 {
+		query := fmt.Sprintf("UPDATE users SET isu_coin=isu_coin + %d WHERE id=%d", addCoinNum, userID)
+		if _, err := tx.Exec(query); err != nil {
+			return nil, nil, nil, err
+		}
+	}
+
+	// カードの付与
+	if len(addCardQueries) > 0 {
+		query := fmt.Sprintf("INSERT INTO user_cards(id, user_id, card_id, amount_per_sec, level, total_exp, created_at, updated_at) VALUES %s", strings.Join(addCardQueries, ","))
+		if _, err := tx.Exec(query); err != nil {
+			return nil, nil, nil, err
+		}
+	}
+
+	// 強化素材の付与
+	if len(addMaterials) > 0 {
+		keys := make([]string, 0, len(addMaterials))
+		for k := range addMaterials {
+			keys = append(keys, fmt.Sprint(k))
+		}
+
+		uitems := []*UserItem{}
+
+		query := fmt.Sprintf("SELECT * FROM user_items WHERE user_id=%d AND item_id IN (%s)", userID, strings.Join(keys, ","))
+		if err := tx.Select(&uitems, query); err != nil {
+			if err != sql.ErrNoRows {
+				return nil, nil, nil, err
+			}
+			uitems = []*UserItem{}
+		}
+
+		uitemsMap := make(map[int64]*UserItem, len(uitems))
+		for _, v := range uitems {
+			uitemsMap[v.ItemID] = v
+		}
+
+		insertQueries := make([]string, 0, len(addMaterials))
+		for itemID, m1 := range addMaterials {
+			if uitem, ok := uitemsMap[itemID]; ok {
+				for _, addNums := range m1 {
+					addTotalNum := 0
+					for _, addNum := range addNums {
+						uitem.Amount += addTotalNum + int(addNum)
+						uitem.UpdatedAt = requestAt
+						obtainItems = append(obtainItems, uitem)
+						addTotalNum += int(addNum)
+					}
+					query = fmt.Sprintf("UPDATE user_items SET amount=amount + %d, updated_at=%d WHERE id=%d", addTotalNum, requestAt, itemID)
+					if _, err := tx.Exec(query); err != nil {
+						return nil, nil, nil, err
+					}
+				}
+			} else {
+				for itemType, addNums := range m1 {
+					uitemID, err := h.generateID()
+					if err != nil {
+						return nil, nil, nil, err
+					}
+					addTotalNum := 0
+					for _, addNum := range addNums {
+						uitem = &UserItem{
+							ID:        uitemID,
+							UserID:    userID,
+							ItemType:  itemType,
+							ItemID:    itemID,
+							Amount:    addTotalNum + int(addNum),
+							CreatedAt: requestAt,
+							UpdatedAt: requestAt,
+						}
+						obtainItems = append(obtainItems, uitem)
+						addTotalNum += int(addNum)
+					}
+					q := fmt.Sprintf("(%d,%d,%d,%d,%d,%d,%d)", uitem.ID, userID, uitem.ItemID, uitem.ItemType, uitem.Amount, requestAt, requestAt)
+					insertQueries = append(insertQueries, q)
+				}
+			}
+		}
+		if len(insertQueries) > 0 {
+			query = fmt.Sprintf("INSERT INTO user_items(id, user_id, item_id, item_type, amount, created_at, updated_at) VALUES %s", strings.Join(insertQueries, ","))
+			if _, err := tx.Exec(query); err != nil {
+				return nil, nil, nil, err
+			}
+		}
+	}
 	return obtainCoins, obtainCards, obtainItems, nil
 }
 
