@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"math"
 	"math/big"
 	"math/rand"
@@ -700,6 +701,7 @@ func (h *Handler) obtainItems(tx *sqlx.Tx, userID int64, addItems []*addItem, re
 		// カードの付与
 		if len(addCardQueries) > 0 {
 			query := fmt.Sprintf("INSERT INTO user_cards(id, user_id, card_id, amount_per_sec, level, total_exp, created_at, updated_at) VALUES %s", strings.Join(addCardQueries, ","))
+			log.Println(query)
 			if _, err := tx.Exec(query); err != nil {
 				return nil, nil, nil, err
 			}
