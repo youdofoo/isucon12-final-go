@@ -691,7 +691,7 @@ func (h *Handler) obtainItems(tx *sqlx.Tx, userID int64, addItems []*addItem, re
 
 		// コインの付与
 		if addCoinNum > 0 {
-			query := fmt.Sprintf("UPDATE users SET isu_coin=isu_coin + %d WHERE id=%s", addCoinNum, userID)
+			query := fmt.Sprintf("UPDATE users SET isu_coin=isu_coin + %d WHERE id=%d", addCoinNum, userID)
 			if _, err := tx.Exec(query); err != nil {
 				return nil, nil, nil, err
 			}
