@@ -610,6 +610,175 @@ func (h *Handler) obtainItem(tx *sqlx.Tx, userID, itemID int64, itemType int, ob
 	return obtainCoins, obtainCards, obtainItems, nil
 }
 
+type addItem struct {
+	itemID       int64
+	itemType     int
+	obtainAmount int64
+}
+
+// obtainItems アイテムまとめて付与処理
+func (h *Handler) obtainItems(tx *sqlx.Tx, userID int64, addItems []*addItem, requestAt int64) ([]int64, []*UserCard, []*UserItem, error) {
+	obtainCoins := make([]int64, 0)
+	obtainCards := make([]*UserCard, 0)
+	obtainItems := make([]*UserItem, 0)
+
+	itemMasterMemo := make(map[int]map[int64]*ItemMaster, 0)
+	addCoinNum := int64(0)
+	addCardQueries := make([]string, 0)
+	addMaterials := make(map[int64]map[int][]int64, 0)
+
+	for _, item := range addItems {
+		switch item.itemType {
+		case 1: // coin
+			obtainCoins = append(obtainCoins, item.obtainAmount)
+			addCoinNum += item.obtainAmount
+
+		case 2: // card(ハンマー)
+			var amountPerSec int
+			found := false
+			if m1, ok1 := itemMasterMemo[item.itemType]; ok1 {
+				if m2, ok2 := m1[item.itemID]; ok2 {
+					amountPerSec = *m2.AmountPerSec
+					found = true
+				}
+			}
+			if !found {
+				query := "SELECT * FROM item_masters WHERE id=? AND item_type=?"
+				m := new(ItemMaster)
+				if err := tx.Get(m, query, item.itemID, item.itemType); err != nil {
+					if err == sql.ErrNoRows {
+						return nil, nil, nil, ErrItemNotFound
+					}
+					return nil, nil, nil, err
+				}
+				amountPerSec = *m.AmountPerSec
+				if _, ok1 := itemMasterMemo[item.itemType]; !ok1 {
+					itemMasterMemo[item.itemType] = make(map[int64]*ItemMaster, 1)
+				}
+				itemMasterMemo[item.itemType][item.itemID] = m
+			}
+			cID, err := h.generateID()
+			if err != nil {
+				return nil, nil, nil, err
+			}
+			card := &UserCard{
+				ID:           cID,
+				UserID:       userID,
+				CardID:       item.itemID,
+				AmountPerSec: amountPerSec,
+				Level:        1,
+				TotalExp:     0,
+				CreatedAt:    requestAt,
+				UpdatedAt:    requestAt,
+			}
+			obtainCards = append(obtainCards, card)
+
+			q := fmt.Sprintf("(%d,%d,%d,%d,%d,%d,%d,%d)", card.ID, card.UserID, card.CardID, card.AmountPerSec, card.Level, card.TotalExp, card.CreatedAt, card.UpdatedAt)
+			addCardQueries = append(addCardQueries, q)
+
+		case 3, 4: // 強化素材
+			if _, ok := addMaterials[item.itemID]; !ok {
+				addMaterials[item.itemID] = make(map[int][]int64)
+			}
+			if _, ok := addMaterials[item.itemID][item.itemType]; !ok {
+				addMaterials[item.itemID][item.itemType] = make([]int64, 0)
+			}
+			addMaterials[item.itemID][item.itemType] = append(addMaterials[item.itemID][item.itemType], item.obtainAmount)
+
+		default:
+			return nil, nil, nil, ErrInvalidItemType
+		}
+	}
+
+	// コインの付与
+	if addCoinNum > 0 {
+		query := fmt.Sprintf("UPDATE users SET isu_coin=isu_coin + %d WHERE id=%d", addCoinNum, userID)
+		if _, err := tx.Exec(query); err != nil {
+			return nil, nil, nil, err
+		}
+	}
+
+	// カードの付与
+	if len(addCardQueries) > 0 {
+		query := fmt.Sprintf("INSERT INTO user_cards(id, user_id, card_id, amount_per_sec, level, total_exp, created_at, updated_at) VALUES %s", strings.Join(addCardQueries, ","))
+		if _, err := tx.Exec(query); err != nil {
+			return nil, nil, nil, err
+		}
+	}
+
+	// 強化素材の付与
+	if len(addMaterials) > 0 {
+		keys := make([]string, 0, len(addMaterials))
+		for k := range addMaterials {
+			keys = append(keys, fmt.Sprint(k))
+		}
+
+		uitems := []*UserItem{}
+
+		query := fmt.Sprintf("SELECT * FROM user_items WHERE user_id=%d AND item_id IN (%s)", userID, strings.Join(keys, ","))
+		if err := tx.Select(&uitems, query); err != nil {
+			if err != sql.ErrNoRows {
+				return nil, nil, nil, err
+			}
+			uitems = []*UserItem{}
+		}
+
+		uitemsMap := make(map[int64]*UserItem, len(uitems))
+		for _, v := range uitems {
+			uitemsMap[v.ItemID] = v
+		}
+
+		insertQueries := make([]string, 0, len(addMaterials))
+		for itemID, m1 := range addMaterials {
+			if uitem, ok := uitemsMap[itemID]; ok {
+				for _, addNums := range m1 {
+					addTotalNum := 0
+					for _, addNum := range addNums {
+						uitem.Amount += addTotalNum + int(addNum)
+						uitem.UpdatedAt = requestAt
+						obtainItems = append(obtainItems, uitem)
+						addTotalNum += int(addNum)
+					}
+					query = fmt.Sprintf("UPDATE user_items SET amount=amount + %d, updated_at=%d WHERE id=%d", addTotalNum, requestAt, itemID)
+					if _, err := tx.Exec(query); err != nil {
+						return nil, nil, nil, err
+					}
+				}
+			} else {
+				for itemType, addNums := range m1 {
+					uitemID, err := h.generateID()
+					if err != nil {
+						return nil, nil, nil, err
+					}
+					addTotalNum := 0
+					for _, addNum := range addNums {
+						uitem = &UserItem{
+							ID:        uitemID,
+							UserID:    userID,
+							ItemType:  itemType,
+							ItemID:    itemID,
+							Amount:    addTotalNum + int(addNum),
+							CreatedAt: requestAt,
+							UpdatedAt: requestAt,
+						}
+						obtainItems = append(obtainItems, uitem)
+						addTotalNum += int(addNum)
+					}
+					q := fmt.Sprintf("(%d,%d,%d,%d,%d,%d,%d)", uitem.ID, userID, uitem.ItemID, uitem.ItemType, uitem.Amount, requestAt, requestAt)
+					insertQueries = append(insertQueries, q)
+				}
+			}
+		}
+		if len(insertQueries) > 0 {
+			query = fmt.Sprintf("INSERT INTO user_items(id, user_id, item_id, item_type, amount, created_at, updated_at) VALUES %s", strings.Join(insertQueries, ","))
+			if _, err := tx.Exec(query); err != nil {
+				return nil, nil, nil, err
+			}
+		}
+	}
+	return obtainCoins, obtainCards, obtainItems, nil
+}
+
 // initialize 初期化処理
 // POST /initialize
 func initialize(c echo.Context) error {
@@ -1282,6 +1451,7 @@ func (h *Handler) receivePresent(c echo.Context) error {
 
 	// 配布処理
 	presentIDs := make([]string, len(obtainPresent))
+	addItems := make([]*addItem, len(obtainPresent))
 	for i := range obtainPresent {
 		if obtainPresent[i].DeletedAt != nil {
 			return errorResponse(c, http.StatusInternalServerError, fmt.Errorf("received present"))
@@ -1291,22 +1461,27 @@ func (h *Handler) receivePresent(c echo.Context) error {
 		obtainPresent[i].DeletedAt = &requestAt
 		v := obtainPresent[i]
 		presentIDs[i] = fmt.Sprint(v.ID)
-
-		_, _, _, err = h.obtainItem(tx, v.UserID, v.ItemID, v.ItemType, int64(v.Amount), requestAt)
-		if err != nil {
-			if err == ErrUserNotFound || err == ErrItemNotFound {
-				return errorResponse(c, http.StatusNotFound, err)
-			}
-			if err == ErrInvalidItemType {
-				return errorResponse(c, http.StatusBadRequest, err)
-			}
-			return errorResponse(c, http.StatusInternalServerError, err)
+		addItems[i] = &addItem{
+			itemID:       v.ItemID,
+			itemType:     v.ItemType,
+			obtainAmount: int64(v.Amount),
 		}
 	}
 
 	query = fmt.Sprintf("UPDATE user_presents SET deleted_at=%d, updated_at=%d WHERE id IN (%s)", requestAt, requestAt, strings.Join(presentIDs, ","))
 	_, err = tx.Exec(query)
 	if err != nil {
+		return errorResponse(c, http.StatusInternalServerError, err)
+	}
+
+	_, _, _, err = h.obtainItems(tx, userID, addItems, requestAt)
+	if err != nil {
+		if err == ErrUserNotFound || err == ErrItemNotFound {
+			return errorResponse(c, http.StatusNotFound, err)
+		}
+		if err == ErrInvalidItemType {
+			return errorResponse(c, http.StatusBadRequest, err)
+		}
 		return errorResponse(c, http.StatusInternalServerError, err)
 	}
 
