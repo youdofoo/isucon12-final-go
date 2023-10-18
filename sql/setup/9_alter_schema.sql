@@ -1,0 +1,1 @@
+CREATE INDEX show_present_idx ON user_presents (`user_id`, `deleted_at`, `created_at` DESC, `id`);
