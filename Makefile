@@ -49,6 +49,8 @@ git-pull:
 
 .PHONY: deploy-app
 deploy-app:
+	sudo cp ./isuconquest.go.service /etc/systemd/system/ && \
+	sudo cp ./env /home/isucon/ && \
 	cd /home/isucon/webapp/go/ && \
 	/home/isucon/local/golang/bin/go build -o isuconquest && \
 	sudo systemctl daemon-reload && \
@@ -62,8 +64,10 @@ reset-log:
 
 .PHONY: deploy-nginx
 deploy-nginx:
+	sudo cp -rf ./nginx/* /etc/nginx/ && \
 	sudo systemctl restart nginx
 
 .PHONY: deploy-mysql
 deploy-mysql:
+	sudo cp -rf ./mysql/* /etc/mysql/ && \
 	sudo systemctl restart mysql
