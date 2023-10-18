@@ -503,16 +503,20 @@ func (h *Handler) obtainPresent(tx *sqlx.Tx, userID int64, requestAt int64) ([]*
 		obtainPresents = append(obtainPresents, up)
 	}
 
-	query = fmt.Sprintf("INSERT INTO user_presents(id, user_id, sent_at, item_type, item_id, amount, present_message, created_at, updated_at) VALUES %s", strings.Join(insertPresentValues, ","))
-	if _, err := tx.Exec(query); err != nil {
-		log.Printf("error! %s", query)
-		return nil, err
+	if len(insertPresentValues) > 0 {
+		query = fmt.Sprintf("INSERT INTO user_presents(id, user_id, sent_at, item_type, item_id, amount, present_message, created_at, updated_at) VALUES %s", strings.Join(insertPresentValues, ","))
+		if _, err := tx.Exec(query); err != nil {
+			log.Printf("error! %s", query)
+			return nil, err
+		}
 	}
 
-	query = fmt.Sprintf("INSERT INTO user_present_all_received_history(id, user_id, present_all_id, received_at, created_at, updated_at) VALUES %s", strings.Join(insertHistoryValues, ","))
-	if _, err := tx.Exec(query); err != nil {
-		log.Printf("error! %s", query)
-		return nil, err
+	if len(insertHistoryValues) > 0 {
+		query = fmt.Sprintf("INSERT INTO user_present_all_received_history(id, user_id, present_all_id, received_at, created_at, updated_at) VALUES %s", strings.Join(insertHistoryValues, ","))
+		if _, err := tx.Exec(query); err != nil {
+			log.Printf("error! %s", query)
+			return nil, err
+		}
 	}
 
 	return obtainPresents, nil
