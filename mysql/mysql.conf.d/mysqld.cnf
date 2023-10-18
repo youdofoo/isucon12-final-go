@@ -82,3 +82,5 @@ disable-log-bin
 innodb_flush_log_at_trx_commit = 2
 
 innodb_buffer_pool_size = 3GB
+
+max_connections = 1024
