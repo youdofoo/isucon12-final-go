@@ -221,7 +221,12 @@ func (h *Handler) checkSessionMiddleware(next echo.HandlerFunc) echo.HandlerFunc
 			return errorResponse(c, http.StatusInternalServerError, ErrGetRequestTime)
 		}
 
-		db := h.shardedDB[userID%4]
+		sessionUserID, err := getUserIDFromSessionID(sessID)
+		if err != nil {
+			return errorResponse(c, http.StatusInternalServerError, ErrGetRequestTime)
+		}
+
+		db := h.shardedDB[sessionUserID%4]
 
 		userSession := new(Session)
 		query := "SELECT * FROM user_sessions WHERE session_id=? AND deleted_at IS NULL"
@@ -987,7 +992,7 @@ func (h *Handler) createUser(c echo.Context) error {
 	if err != nil {
 		return errorResponse(c, http.StatusInternalServerError, err)
 	}
-	sessID, err := generateUUID()
+	sessID, err := generateSessionID(user.ID)
 	if err != nil {
 		return errorResponse(c, http.StatusInternalServerError, err)
 	}
@@ -1085,7 +1090,7 @@ func (h *Handler) login(c echo.Context) error {
 	if err != nil {
 		return errorResponse(c, http.StatusInternalServerError, err)
 	}
-	sessID, err := generateUUID()
+	sessID, err := generateSessionID(req.UserID)
 	if err != nil {
 		return errorResponse(c, http.StatusInternalServerError, err)
 	}
@@ -2125,6 +2130,26 @@ func generateUUID() (string, error) {
 	}
 
 	return id.String(), nil
+}
+
+func generateSessionID(userID int64) (string, error) {
+	u, err := generateUUID()
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%s/%d", u, userID), nil
+}
+
+func getUserIDFromSessionID(sessID string) (int64, error) {
+	s := strings.Split(sessID, "/")
+	if len(s) < 2 {
+		return 0, errors.New("invalid session ID")
+	}
+	v, err := strconv.ParseInt(s[1], 10, 64)
+	if err != nil {
+		return 0, errors.New("invalid session ID")
+	}
+	return v, nil
 }
 
 // getUserID path paramからuserIDを取得する
