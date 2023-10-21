@@ -221,11 +221,7 @@ func (h *Handler) checkSessionMiddleware(next echo.HandlerFunc) echo.HandlerFunc
 			return errorResponse(c, http.StatusInternalServerError, ErrGetRequestTime)
 		}
 
-		log.Println(sessID)
-		sessionUserID, err := getUserIDFromSessionID(sessID)
-		if err != nil {
-			return errorResponse(c, http.StatusInternalServerError, ErrGetRequestTime)
-		}
+		sessionUserID, _ := getUserIDFromSessionID(sessID)
 
 		db := h.shardedDB[sessionUserID%4]
 
