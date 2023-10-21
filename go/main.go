@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -22,6 +23,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 	"github.com/pkg/errors"
+	"golang.org/x/sync/errgroup"
 )
 
 var (
@@ -49,9 +51,9 @@ const (
 )
 
 type Handler struct {
-	DB *sqlx.DB
-
-	node *snowflake.Node
+	DB        *sqlx.DB
+	shardedDB []*sqlx.DB
+	node      *snowflake.Node
 }
 
 func main() {
@@ -67,22 +69,30 @@ func main() {
 		AllowHeaders: []string{"Content-Type", "x-master-version", "x-session"},
 	}))
 
-	dbx, err := connectDB(false)
-	if err != nil {
-		e.Logger.Fatalf("failed to connect to db: %v", err)
+	dbs := make([]*sqlx.DB, 4)
+	for i := range dbs {
+		dbx, err := connectDB(false, i)
+		if err != nil {
+			e.Logger.Fatalf("failed to connect to db: %v", err)
+		}
+		defer dbx.Close()
+
+		dbs[i] = dbx
 	}
-	defer dbx.Close()
 
 	e.Server.Addr = fmt.Sprintf(":%v", "8080")
 
+	// シャーディングのために、シーケンス部を2ビット短くする
+	snowflake.StepBits = 10
 	node, err := snowflake.NewNode(0)
 	if err != nil {
 		e.Logger.Fatalf("failed to cretae snowflake node: %v", err)
 	}
 
 	h := &Handler{
-		DB:   dbx,
-		node: node,
+		DB:        dbs[0],
+		shardedDB: dbs,
+		node:      node,
 	}
 
 	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{}))
@@ -121,12 +131,12 @@ func main() {
 }
 
 // connectDB DBに接続する
-func connectDB(batch bool) (*sqlx.DB, error) {
+func connectDB(batch bool, shard int) (*sqlx.DB, error) {
 	dsn := fmt.Sprintf(
 		"%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=true&loc=%s&multiStatements=%t&interpolateParams=true",
 		getEnv("ISUCON_DB_USER", "isucon"),
 		getEnv("ISUCON_DB_PASSWORD", "isucon"),
-		getEnv("ISUCON_DB_HOST", "127.0.0.1"),
+		getEnv(fmt.Sprintf("ISUCON_DB_HOST%d", shard), "127.0.0.1"),
 		getEnv("ISUCON_DB_PORT", "3306"),
 		getEnv("ISUCON_DB_NAME", "isucon"),
 		"Asia%2FTokyo",
@@ -812,16 +822,26 @@ func (h *Handler) obtainItems(tx *sqlx.Tx, userID int64, addItems []*addItem, re
 // initialize 初期化処理
 // POST /initialize
 func initialize(c echo.Context) error {
-	dbx, err := connectDB(true)
-	if err != nil {
-		return errorResponse(c, http.StatusInternalServerError, err)
-	}
-	defer dbx.Close()
+	eg, _ := errgroup.WithContext(context.Background())
+	for i := 0; i < 4; i++ {
+		dbx, err := connectDB(true, i)
+		if err != nil {
+			return errorResponse(c, http.StatusInternalServerError, err)
+		}
+		defer dbx.Close()
 
-	out, err := exec.Command("/bin/sh", "-c", SQLDirectory+"init.sh").CombinedOutput()
-	if err != nil {
-		c.Logger().Errorf("Failed to initialize %s: %v", string(out), err)
-		return errorResponse(c, http.StatusInternalServerError, err)
+		shard := i
+		eg.Go(func() error {
+			out, err := exec.Command("/bin/sh", "-c", SQLDirectory+fmt.Sprintf("init%d.sh", shard)).CombinedOutput()
+			if err != nil {
+				c.Logger().Errorf("Failed to initialize %s: %v", string(out), err)
+				return errorResponse(c, http.StatusInternalServerError, err)
+			}
+			return nil
+		})
+	}
+	if err := eg.Wait(); err != nil {
+		return err
 	}
 
 	return successResponse(c, &InitializeResponse{
@@ -2067,8 +2087,10 @@ func noContentResponse(c echo.Context, status int) error {
 
 // generateID ユニークなIDを生成する
 func (h *Handler) generateID() (int64, error) {
-	id := h.node.Generate()
-	return id.Int64(), nil
+	id := h.node.Generate().Int64()
+	// シャーディングのために下位2ビットに乱数を入れる
+	id = (id << 2) | int64(rand.Intn(4))
+	return id, nil
 }
 
 // generateUUID UUIDの生成
