@@ -1,14 +1,12 @@
 package main
 
 import (
-	crand "crypto/rand"
 	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"math"
-	"math/big"
 	"math/rand"
 	"net/http"
 	"os"
@@ -17,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bwmarrin/snowflake"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
@@ -51,6 +50,8 @@ const (
 
 type Handler struct {
 	DB *sqlx.DB
+
+	node *snowflake.Node
 }
 
 func main() {
@@ -73,8 +74,15 @@ func main() {
 	defer dbx.Close()
 
 	e.Server.Addr = fmt.Sprintf(":%v", "8080")
+
+	node, err := snowflake.NewNode(0)
+	if err != nil {
+		e.Logger.Fatalf("failed to cretae snowflake node: %v", err)
+	}
+
 	h := &Handler{
-		DB: dbx,
+		DB:   dbx,
+		node: node,
 	}
 
 	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{}))
@@ -2059,11 +2067,8 @@ func noContentResponse(c echo.Context, status int) error {
 
 // generateID ユニークなIDを生成する
 func (h *Handler) generateID() (int64, error) {
-	n, err := crand.Int(crand.Reader, big.NewInt(math.MaxInt64))
-	if err != nil {
-		return 0, err
-	}
-	return n.Int64(), nil
+	id := h.node.Generate()
+	return id.Int64(), nil
 }
 
 // generateUUID UUIDの生成
